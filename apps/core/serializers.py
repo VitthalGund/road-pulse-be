@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from .models import Carrier, Driver, Vehicle, Trip, DutyStatus, ELDLog
-from django.contrib.gis.geos import Point
 
 
 class CarrierSerializer(serializers.ModelSerializer):

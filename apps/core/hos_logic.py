@@ -2,6 +2,7 @@ from datetime import timedelta
 from django.conf import settings
 import requests
 from .models import DutyStatus
+import polyline
 
 
 class HOSCalculator:
@@ -41,15 +42,12 @@ class HOSCalculator:
         return distance, duration, geometry
 
     def get_interpolated_location(self, geometry, fraction):
-        lon = (
-            self.trip.pickup_longitude
-            + (self.trip.dropoff_longitude - self.trip.pickup_longitude) * fraction
-        )
-        lat = (
-            self.trip.pickup_latitude
-            + (self.trip.dropoff_latitude - self.trip.pickup_latitude) * fraction
-        )
-        return [lon, lat]
+        points = polyline.decode(geometry)
+        points = [[lon, lat] for lat, lon in points]
+        index = int(len(points) * fraction)
+        if index >= len(points):
+            index = len(points) - 1
+        return points[index]
 
     def plan_trip(self):
         distance, duration, geometry = self.calculate_route()
