@@ -20,7 +20,7 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            refresh = RefreshToken.for_user(user)
+            refresh = RefreshToken.for_user(user).set_exp(lifetime=160 * 60 * 24)  
             return Response(
                 {
                     "refresh": str(refresh),

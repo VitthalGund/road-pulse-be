@@ -14,7 +14,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from datetime import date
 from .hos_logic import HOSCalculator
-from rest_framework.permissions import IsAdminUser
 
 
 class TripViewSet(ModelViewSet):
@@ -30,6 +29,7 @@ class TripViewSet(ModelViewSet):
         responses={201: TripSerializer, 400: "Invalid input"},
     )
     def create(self, request, *args, **kwargs):
+        print("Creating trip with data:", request.data)
         return super().create(request, *args, **kwargs)
 
     @swagger_auto_schema(
@@ -189,7 +189,7 @@ class RouteCalculationAPIView(APIView):
 class CarrierViewSet(ModelViewSet):
     queryset = Carrier.objects.all()
     serializer_class = CarrierSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         operation_description="List all carriers (admin only).",
@@ -214,7 +214,8 @@ class VehicleViewSet(ModelViewSet):
     def get_queryset(self):
         if self.request.user.is_staff:
             return Vehicle.objects.all()
-        return Vehicle.objects.filter(carrier=self.request.user.driver.carrier)
+        carrirer = Carrier.objects.filter(created_by=self.request.user).only("id")
+        return Vehicle.objects.filter(carrier__in=carrirer)
 
     @swagger_auto_schema(
         operation_description="List vehicles for the authenticated driver's carrier or all vehicles (admin).",
@@ -228,8 +229,6 @@ class VehicleViewSet(ModelViewSet):
         responses={201: VehicleSerializer, 400: "Invalid input"},
     )
     def create(self, request, *args, **kwargs):
-        if not request.user.is_staff:
-            return Response({"error": "Admin only"}, status=status.HTTP_403_FORBIDDEN)
         return super().create(request, *args, **kwargs)
 
 

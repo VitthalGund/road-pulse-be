@@ -5,6 +5,7 @@ from django.contrib.auth.models import User
 class Carrier(models.Model):
     name = models.CharField(max_length=255)
     main_office_address = models.CharField(max_length=255)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE,blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -60,10 +61,13 @@ class Trip(models.Model):
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="trips")
     current_longitude = models.FloatField()
     current_latitude = models.FloatField()
+    current_location_name = models.CharField(max_length=255, blank=True)
     pickup_longitude = models.FloatField()
     pickup_latitude = models.FloatField()
+    pickup_location_name = models.CharField(max_length=255, blank=True)
     dropoff_longitude = models.FloatField()
     dropoff_latitude = models.FloatField()
+    dropoff_location_name = models.CharField(max_length=255, blank=True)
     current_cycle_hours = models.FloatField(default=0.0)
     start_time = models.DateTimeField()
     status = models.CharField(
