@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from drf_yasg.utils import swagger_auto_schema
@@ -8,6 +9,8 @@ from .serializers import RegisterSerializer, LoginSerializer
 
 
 class RegisterView(APIView):
+    permission_classes = [AllowAny]
+
     @swagger_auto_schema(
         request_body=RegisterSerializer,
         responses={201: "User registered successfully", 400: "Invalid input"},
@@ -29,6 +32,8 @@ class RegisterView(APIView):
 
 
 class LoginView(APIView):
+    permission_classes = [AllowAny]
+
     @swagger_auto_schema(
         request_body=LoginSerializer,
         responses={200: "Login successful", 401: "Invalid credentials"},
@@ -38,6 +43,7 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
             user = authenticate(
+                request=request,
                 username=serializer.validated_data["username"],
                 password=serializer.validated_data["password"],
             )

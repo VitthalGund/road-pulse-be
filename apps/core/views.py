@@ -231,3 +231,20 @@ class VehicleViewSet(ModelViewSet):
         if not request.user.is_staff:
             return Response({"error": "Admin only"}, status=status.HTTP_403_FORBIDDEN)
         return super().create(request, *args, **kwargs)
+
+
+class UserInfoView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(
+            {
+                "user_id": request.user.id,
+                "username": request.user.username,
+                "has_driver": hasattr(request.user, "driver"),
+                "email": request.user.email,
+                "first_name": request.user.first_name,
+                "last_name": request.user.last_name,
+                "is_admin": request.user.is_staff,
+            }
+        )

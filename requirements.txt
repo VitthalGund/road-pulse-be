@@ -9,3 +9,4 @@ redis==5.0.1
 drf-yasg==1.21.7
 pytest-django==4.7.0
 polyline==1.4.0
+django-cors-headers==4.4.0

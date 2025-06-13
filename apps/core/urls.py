@@ -8,6 +8,7 @@ from .views import (
     RouteCalculationAPIView,
     CarrierViewSet,
     VehicleViewSet,
+    UserInfoView,
 )
 
 router = DefaultRouter()
@@ -28,6 +29,7 @@ urlpatterns = [
     path(
         "trips/<int:trip_id>/eld-logs/", ELDLogListView.as_view(), name="eld-log-list"
     ),
+    path("api/user-info/", UserInfoView.as_view(), name="user-info"),
     path(
         "trips/<int:trip_id>/route/",
         RouteCalculationAPIView.as_view(),
