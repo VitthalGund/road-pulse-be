@@ -24,7 +24,7 @@ class VehicleSerializer(serializers.ModelSerializer):
 
 class TripSerializer(serializers.ModelSerializer):
     driver = DriverSerializer(read_only=True)
-    vehicle = serializers.PrimaryKeyRelatedField(queryset=Vehicle.objects.all())
+    vehicle = VehicleSerializer()
     current_location = serializers.SerializerMethodField()
     pickup_location = serializers.SerializerMethodField()
     dropoff_location = serializers.SerializerMethodField()
@@ -96,7 +96,6 @@ class TripSerializer(serializers.ModelSerializer):
         current_location = validated_data.pop("current_location_input", None)
         pickup_location = validated_data.pop("pickup_location_input", None)
         dropoff_location = validated_data.pop("dropoff_location_input", None)
-
         validated_data["driver"] = self.context["request"].user.driver
 
         trip = Trip.objects.create(
