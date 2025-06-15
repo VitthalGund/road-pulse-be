@@ -1,154 +1,157 @@
-from datetime import timedelta
-from django.conf import settings
-import requests
-from .models import DutyStatus
-import polyline
+import math
+from datetime import datetime, timedelta
 
 
 class HOSCalculator:
-    def __init__(self, trip):
-        self.trip = trip
-        self.api_key = settings.GRAPHHOPPER_API_KEY
-        self.headers = {"User-Agent": settings.NOMINATIM_USER_AGENT}
+    def __init__(
+        self, start_time, current_cycle_hours, pickup_location, dropoff_location
+    ):
+        self.start_time = start_time
+        self.current_cycle_hours = current_cycle_hours
+        self.pickup_location = pickup_location
+        self.dropoff_location = dropoff_location
+        self.duty_statuses = []
 
-    def geocode_location(self, location_name):
-        url = (
-            f"https://nominatim.openstreetmap.org/search?q={location_name}&format=json"
-        )
-        response = requests.get(url, headers=self.headers)
-        data = response.json()
-        if data:
-            return float(data[0]["lon"]), float(data[0]["lat"])
-        raise ValueError(f"Could not geocode location: {location_name}")
-
-    def calculate_route(self):
-        coords = [
-            (self.trip.current_longitude, self.trip.current_latitude),
-            (self.trip.pickup_longitude, self.trip.pickup_latitude),
-            (self.trip.dropoff_longitude, self.trip.dropoff_latitude),
-        ]
-        url = (
-            f"https://graphhopper.com/api/1/route?point={coords[0][1]},{coords[0][0]}"
-            f"&point={coords[1][1]},{coords[1][0]}&point={coords[2][1]},{coords[2][0]}"
-            f"&vehicle=truck&key={self.api_key}"
-        )
-        response = requests.get(url)
-        data = response.json()
-        if "paths" not in data:
-            raise ValueError("Failed to calculate route")
-        distance = data["paths"][0]["distance"] / 1000
-        duration = data["paths"][0]["time"] / 3600 / 1000
-        geometry = data["paths"][0]["points"]
-        return distance, duration, geometry
-
-    def get_interpolated_location(self, geometry, fraction):
-        points = polyline.decode(geometry)
-        points = [[lon, lat] for lat, lon in points]
-        index = int(len(points) * fraction)
-        if index >= len(points):
-            index = len(points) - 1
-        return points[index]
+    def calculate_distance(self, coord1, coord2):
+        lat1, lon1 = coord1
+        lat2, lon2 = coord2
+        R = 6371  # Radius of the earth in km
+        dLat = math.radians(lat2 - lat1)
+        dLon = math.radians(lon2 - lon1)
+        a = math.sin(dLat / 2) * math.sin(dLat / 2) + math.cos(
+            math.radians(lat1)
+        ) * math.cos(math.radians(lat2)) * math.sin(dLon / 2) * math.sin(dLon / 2)
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        distance = R * c * 0.621371  # convert km to miles
+        return distance
 
     def plan_trip(self):
-        distance, duration, geometry = self.calculate_route()
-        current_time = self.trip.start_time
-        duty_statuses = []
-        total_miles = distance * 0.621371
+        total_miles = self.calculate_distance(
+            self.pickup_location, self.dropoff_location
+        )
+        avg_speed = 50.0  # mph
+        total_driving_hours = total_miles / avg_speed
 
-        duty_statuses.append(
-            {
-                "status": "ON_DUTY_NOT_DRIVING",
-                "start_time": current_time,
-                "end_time": current_time + timedelta(hours=1),
-                "longitude": self.trip.pickup_longitude,
-                "latitude": self.trip.pickup_latitude,
-                "location_description": "Pickup",
-            }
+        current_time = self.start_time
+        driving_in_shift = 0.0
+        on_duty_in_shift = 0.0
+        driving_since_break = 0.0
+
+        # 1. Pickup (1 hour, on-duty not driving)
+        self.add_duty_status(
+            "ON_DUTY_NOT_DRIVING",
+            current_time,
+            current_time + timedelta(hours=1),
+            "Pickup",
         )
         current_time += timedelta(hours=1)
+        on_duty_in_shift += 1.0
 
-        fueling_stops = int(distance / 1609.34)
-        driving_hours = 0
-        on_duty_hours = 1
-        remaining_cycle = 70 - self.trip.current_cycle_hours
-        distance_covered = 0
+        # If the trip is very short, skip the main driving loop
+        if total_driving_hours < 1.0:
+            self.add_duty_status(
+                "ON_DUTY_NOT_DRIVING",
+                current_time,
+                current_time + timedelta(hours=1),
+                "Dropoff",
+            )
+            current_time += timedelta(hours=1)
+            return {"total_miles": total_miles, "duty_statuses": self.duty_statuses}
 
-        for i in range(fueling_stops + 1):
-            segment_distance = min(1609.34, distance - (i * 1609.34))
-            segment_duration = (segment_distance / distance) * duration
-            distance_covered += segment_distance
-            fraction = distance_covered / distance
+        # 2. Main Driving Loop
+        while total_driving_hours > 0:
+            print(f"Starting loop with {total_driving_hours:.2f} hours left")
+            print(
+                f"Driving time this shift: {driving_in_shift:.2f} hours, On-duty time: {on_duty_in_shift:.2f} hours"
+            )
 
-            if driving_hours + segment_duration > 8:
-                interpolated = self.get_interpolated_location(geometry, fraction)
-                duty_statuses.append(
-                    {
-                        "status": "OFF_DUTY",
-                        "start_time": current_time,
-                        "end_time": current_time + timedelta(minutes=30),
-                        "longitude": interpolated[0],
-                        "latitude": interpolated[1],
-                        "location_description": "Rest Break",
-                    }
+            # Check for end-of-shift (11-hour driving or 14-hour on-duty limit)
+            if driving_in_shift >= 11.0 or on_duty_in_shift >= 14.0:
+                self.add_duty_status(
+                    "OFF_DUTY",
+                    current_time,
+                    current_time + timedelta(hours=10),
+                    "10-hour Reset",
+                )
+                current_time += timedelta(hours=10)
+                driving_in_shift = 0.0
+                on_duty_in_shift = 0.0
+                driving_since_break = 0.0
+                continue
+
+            # Determine the maximum time we can drive before hitting the next limit
+            time_to_11h_limit = 11.0 - driving_in_shift
+            time_to_14h_limit = 14.0 - on_duty_in_shift
+            time_to_break_needed = 8.0 - driving_since_break
+
+            # Drive duration should be the minimum of these limits
+            drive_duration = min(
+                total_driving_hours,
+                time_to_11h_limit,
+                time_to_14h_limit,
+                time_to_break_needed,
+            )
+
+            print(f"Drive duration for this loop: {drive_duration:.2f} hours")
+
+            if drive_duration > 0:
+                self.add_duty_status(
+                    "DRIVING",
+                    current_time,
+                    current_time + timedelta(hours=drive_duration),
+                    "Driving",
+                )
+                current_time += timedelta(hours=drive_duration)
+                driving_in_shift += drive_duration
+                on_duty_in_shift += drive_duration
+                driving_since_break += drive_duration
+                total_driving_hours -= drive_duration
+
+                print(f"After driving: {driving_since_break:.2f} hours since break")
+
+            # Check if a break is required after driving 8 hours
+            if driving_since_break >= 8.0 and total_driving_hours > 0:
+                print(
+                    f"Taking 30-minute break after {driving_since_break:.2f} hours of driving."
+                )
+                self.add_duty_status(
+                    "ON_DUTY_NOT_DRIVING",
+                    current_time,
+                    current_time + timedelta(minutes=30),
+                    "30-minute break",
                 )
                 current_time += timedelta(minutes=30)
-                on_duty_hours += 0.5
+                on_duty_in_shift += 0.5
+                driving_since_break = 0.0  # Reset the break clock
 
-            interpolated = self.get_interpolated_location(geometry, fraction)
-            duty_statuses.append(
-                {
-                    "status": "DRIVING",
-                    "start_time": current_time,
-                    "end_time": current_time + timedelta(hours=segment_duration),
-                    "longitude": interpolated[0],
-                    "latitude": interpolated[1],
-                    "location_description": "Driving",
-                }
-            )
-            current_time += timedelta(hours=segment_duration)
-            driving_hours += segment_duration
-            on_duty_hours += segment_duration
+        # Debugging: Final check before returning result
+        print("\nFinal Duty Statuses:")
+        for duty in self.duty_statuses:
+            print(f"Description: {duty['location_description']}")
 
-            if i < fueling_stops:
-                interpolated = self.get_interpolated_location(geometry, fraction)
-                duty_statuses.append(
-                    {
-                        "status": "ON_DUTY_NOT_DRIVING",
-                        "start_time": current_time,
-                        "end_time": current_time + timedelta(hours=1),
-                        "longitude": interpolated[0],
-                        "latitude": interpolated[1],
-                        "location_description": "Fueling Stop",
-                    }
-                )
-                current_time += timedelta(hours=1)
-                on_duty_hours += 1
+        # 3. Dropoff (1 hour, on-duty not driving)
+        self.add_duty_status(
+            "ON_DUTY_NOT_DRIVING",
+            current_time,
+            current_time + timedelta(hours=1),
+            "Dropoff",
+        )
 
-        duty_statuses.append(
+        # Debugging: Final check before returning result
+        print("\nFinal Duty Statuses Before Returning:")
+        for duty in self.duty_statuses:
+            print(f"Description: {duty['location_description']}")
+
+        return {"total_miles": total_miles, "duty_statuses": self.duty_statuses}
+
+    def add_duty_status(self, status, start, end, description):
+        self.duty_statuses.append(
             {
-                "status": "ON_DUTY_NOT_DRIVING",
-                "start_time": current_time,
-                "end_time": current_time + timedelta(hours=1),
-                "longitude": self.trip.dropoff_longitude,
-                "latitude": self.trip.dropoff_latitude,
-                "location_description": "Dropoff",
+                "status": status,
+                "start_time": start.isoformat(),
+                "end_time": end.isoformat(),
+                "location_description": description,
             }
         )
-        on_duty_hours += 1
-
-        if on_duty_hours > remaining_cycle:
-            raise ValueError("Trip exceeds 70-hour limit")
-
-        for status in duty_statuses:
-            DutyStatus.objects.create(
-                trip=self.trip,
-                status=status["status"],
-                start_time=status["start_time"],
-                end_time=status["end_time"],
-                longitude=status["longitude"],
-                latitude=status["latitude"],
-                location_description=status["location_description"],
-                remarks=status.get("remarks", ""),
-            )
-
-        return duty_statuses, geometry, total_miles
+        # Add debug print to show the description being added
+        print(f"Added duty status: {description}")

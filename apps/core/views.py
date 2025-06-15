@@ -1,4 +1,6 @@
 from rest_framework.viewsets import ModelViewSet
+from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from drf_yasg.utils import swagger_auto_schema
 from .models import Trip, DutyStatus, ELDLog, Carrier, Vehicle
@@ -11,83 +13,8 @@ from .serializers import (
 )
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 from datetime import date
 from .hos_logic import HOSCalculator
-
-
-class TripViewSet(ModelViewSet):
-    queryset = Trip.objects.all()
-    serializer_class = TripSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return Trip.objects.filter(driver=self.request.user.driver)
-
-    @swagger_auto_schema(
-        operation_description="Create a new trip for the authenticated driver.",
-        responses={201: TripSerializer, 400: "Invalid input"},
-    )
-    def create(self, request, *args, **kwargs):
-        print("Creating trip with data:", request.data)
-        return super().create(request, *args, **kwargs)
-
-    @swagger_auto_schema(
-        operation_description="List all trips for the authenticated driver. Filter by status using ?status=PLANNED, etc.",
-        responses={200: TripSerializer(many=True)},
-    )
-    def list(self, request, *args, **kwargs):
-        status = request.query_params.get("status")
-        if status:
-            self.queryset = self.queryset.filter(status=status)
-        return super().list(request, *args, **kwargs)
-
-    @swagger_auto_schema(
-        operation_description="Retrieve a specific trip.",
-        responses={200: TripSerializer, 404: "Trip not found"},
-    )
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
-
-    @swagger_auto_schema(
-        operation_description="Update a trip's status or other fields.",
-        responses={200: TripSerializer, 400: "Invalid input"},
-    )
-    def partial_update(self, request, *args, **kwargs):
-        return super().partial_update(request, *args, **kwargs)
-
-    @swagger_auto_schema(
-        operation_description="Delete a trip.",
-        responses={204: "Trip deleted", 404: "Trip not found"},
-    )
-    def destroy(self, request, *args, **kwargs):
-        return super().destroy(request, *args, **kwargs)
-
-
-class DutyStatusViewSet(ModelViewSet):
-    serializer_class = DutyStatusSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        trip_id = self.kwargs.get("trip_id")
-        return DutyStatus.objects.filter(
-            trip__id=trip_id, trip__driver=self.request.user.driver
-        )
-
-    @swagger_auto_schema(
-        operation_description="Log a duty status change for a trip.",
-        responses={201: DutyStatusSerializer, 400: "Invalid input"},
-    )
-    def create(self, request, *args, **kwargs):
-        request.data["trip"] = self.kwargs["trip_id"]
-        return super().create(request, *args, **kwargs)
-
-    @swagger_auto_schema(
-        operation_description="List duty statuses for a trip.",
-        responses={200: DutyStatusSerializer(many=True)},
-    )
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
 
 
 class ELDLogGenerateView(APIView):
@@ -186,52 +113,6 @@ class RouteCalculationAPIView(APIView):
             )
 
 
-class CarrierViewSet(ModelViewSet):
-    queryset = Carrier.objects.all()
-    serializer_class = CarrierSerializer
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        operation_description="List all carriers (admin only).",
-        responses={200: CarrierSerializer(many=True)},
-    )
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-
-    @swagger_auto_schema(
-        operation_description="Create a new carrier (admin only).",
-        responses={201: CarrierSerializer, 400: "Invalid input"},
-    )
-    def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
-
-
-class VehicleViewSet(ModelViewSet):
-    queryset = Vehicle.objects.all()
-    serializer_class = VehicleSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        if self.request.user.is_staff:
-            return Vehicle.objects.all()
-        carrirer = Carrier.objects.filter(created_by=self.request.user).only("id")
-        return Vehicle.objects.filter(carrier__in=carrirer)
-
-    @swagger_auto_schema(
-        operation_description="List vehicles for the authenticated driver's carrier or all vehicles (admin).",
-        responses={200: VehicleSerializer(many=True)},
-    )
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-
-    @swagger_auto_schema(
-        operation_description="Create a new vehicle (admin only).",
-        responses={201: VehicleSerializer, 400: "Invalid input"},
-    )
-    def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
-
-
 class UserInfoView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -247,3 +128,59 @@ class UserInfoView(APIView):
                 "is_admin": request.user.is_staff,
             }
         )
+
+
+class TripViewSet(viewsets.ModelViewSet):
+    queryset = Trip.objects.all()
+    serializer_class = TripSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            return Trip.objects.all()
+        return Trip.objects.filter(driver__user=user)
+
+    @action(detail=True, methods=["post"])
+    def calculate_route(self, request, pk=None):
+        trip = self.get_object()
+        calculator = HOSCalculator(
+            trip.start_time,
+            trip.current_cycle_hours,
+            trip.pickup_location,
+            trip.dropoff_location,
+        )
+        route_data = calculator.plan_trip()
+        return Response(route_data)
+
+
+class VehicleViewSet(viewsets.ModelViewSet):
+    queryset = Vehicle.objects.all()
+    serializer_class = VehicleSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+
+class CarrierViewSet(viewsets.ModelViewSet):
+    queryset = Carrier.objects.all()
+    serializer_class = CarrierSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+
+class DutyStatusViewSet(viewsets.ModelViewSet):
+    queryset = DutyStatus.objects.all()
+    serializer_class = DutyStatusSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        trip_id = self.kwargs["trip_pk"]
+        return DutyStatus.objects.filter(trip_id=trip_id)
+
+
+class ELDLogViewSet(viewsets.ModelViewSet):
+    queryset = ELDLog.objects.all()
+    serializer_class = ELDLogSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        trip_id = self.kwargs["trip_pk"]
+        return ELDLog.objects.filter(trip_id=trip_id)
