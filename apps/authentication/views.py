@@ -1,26 +1,29 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import generics, permissions, status
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from drf_yasg.utils import swagger_auto_schema
 from .serializers import RegisterSerializer, LoginSerializer
+from django.contrib.auth import get_user_model
+from datetime import timedelta
+
+User = get_user_model()
 
 
-class RegisterView(APIView):
-    permission_classes = [AllowAny]
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    permission_classes = [permissions.AllowAny]
+    serializer_class = RegisterSerializer
 
-    @swagger_auto_schema(
-        request_body=RegisterSerializer,
-        responses={201: "User registered successfully", 400: "Invalid input"},
-        operation_description="Register a new driver user with carrier details.",
-    )
-    def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            refresh = RefreshToken.for_user(user).set_exp(lifetime=160 * 60 * 24)  
+            refresh = RefreshToken.for_user(user)
+            refresh.set_exp(lifetime=timedelta(days=160))
+
             return Response(
                 {
                     "refresh": str(refresh),

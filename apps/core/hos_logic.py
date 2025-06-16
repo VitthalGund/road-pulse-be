@@ -11,6 +11,7 @@ class HOSCalculator:
         self.pickup_location = pickup_location
         self.dropoff_location = dropoff_location
         self.duty_statuses = []
+        self.miles_since_last_fuel_stop = 0.0
 
     def calculate_distance(self, coord1, coord2):
         lat1, lon1 = coord1
@@ -77,6 +78,18 @@ class HOSCalculator:
                 driving_in_shift = 0.0
                 on_duty_in_shift = 0.0
                 driving_since_break = 0.0
+                continue
+
+            if self.miles_since_last_fuel_stop >= 1000:
+                self.add_duty_status(
+                    "ON_DUTY_NOT_DRIVING",
+                    current_time,
+                    current_time + timedelta(minutes=30),
+                    "Fueling Stop",
+                )
+                current_time += timedelta(minutes=30)
+                on_duty_in_shift += 0.5
+                self.miles_since_last_fuel_stop = 0.0
                 continue
 
             # Determine the maximum time we can drive before hitting the next limit
