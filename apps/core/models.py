@@ -5,7 +5,9 @@ from django.contrib.auth.models import User
 class Carrier(models.Model):
     name = models.CharField(max_length=255)
     main_office_address = models.CharField(max_length=255)
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE,blank=True, null=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.CASCADE, blank=True, null=True
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -139,10 +141,33 @@ class ELDLog(models.Model):
     trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name="eld_logs")
     date = models.DateField()
     total_miles = models.FloatField()
+    fuel_consumed = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Fuel consumed in gallons",
+        null=True,
+        blank=True,
+    )
+    total_engine_hours = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Total engine hours for the day",
+        null=True,
+        blank=True,
+    )
+    total_idle_hours = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Total engine idle hours for the day",
+        null=True,
+        blank=True,
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        unique_together = ("trip", "date")
         db_table = "eld_logs"
         indexes = [
             models.Index(fields=["trip", "date"]),

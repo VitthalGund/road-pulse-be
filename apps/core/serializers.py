@@ -72,16 +72,26 @@ class TripSerializer(serializers.ModelSerializer):
         read_only_fields = ("driver",)
 
     def create(self, validated_data):
-        driver = self.context["request"].user.driver
+        """
+        Correctly creates a Trip instance, handling the driver and vehicle relationships.
+        """
+        driver_instance = validated_data.pop("driver", None)
+        vehicle_instance = validated_data.pop("vehicle")
 
+        if not driver_instance:
+            user = self.context["request"].user
+            if hasattr(user, "driver"):
+                driver_instance = user.driver
+            else:
+                raise serializers.ValidationError(
+                    "A driver could not be associated with this trip."
+                )
         current_coords = validated_data.pop("current_location_input")
         pickup_coords = validated_data.pop("pickup_location_input")
         dropoff_coords = validated_data.pop("dropoff_location_input")
 
-        vehicle_instance = validated_data.pop("vehicle")
-
         trip = Trip.objects.create(
-            driver=driver,
+            driver=driver_instance,
             vehicle=vehicle_instance,
             current_longitude=current_coords[0],
             current_latitude=current_coords[1],
@@ -95,9 +105,42 @@ class TripSerializer(serializers.ModelSerializer):
 
 
 class DutyStatusSerializer(serializers.ModelSerializer):
+    location = serializers.ListField(
+        child=serializers.FloatField(), write_only=True, required=False
+    )
+
     class Meta:
         model = DutyStatus
-        fields = "__all__"
+        fields = [
+            "id",
+            "trip",
+            "status",
+            "start_time",
+            "end_time",
+            "latitude",
+            "longitude",
+            "location_description",
+            "remarks",
+            "created_at",
+            "updated_at",
+            "location",
+        ]
+        read_only_fields = [
+            "id",
+            "trip",
+            "created_at",
+            "updated_at",
+            "latitude",
+            "longitude",
+        ]
+
+    def create(self, validated_data):
+        location_data = validated_data.pop("location", [0.0, 0.0])
+        if location_data and len(location_data) == 2:
+            validated_data["longitude"] = location_data[0]
+            validated_data["latitude"] = location_data[1]
+
+        return super().create(validated_data)
 
 
 class ELDLogSerializer(serializers.ModelSerializer):
