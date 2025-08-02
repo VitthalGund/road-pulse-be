@@ -14,10 +14,11 @@ from pathlib import Path
 from environ import Env
 from django.utils.encoding import force_str
 
-env = Env()
+env = Env(DEBUG=(bool, False))
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+# Take environment variables from .env file
 env.read_env(BASE_DIR / ".env")
 
 
@@ -27,19 +28,18 @@ env.read_env(BASE_DIR / ".env")
 SECRET_KEY = env("SECRET_KEY")
 
 
-def get_list_env(key, default=""):
-    return [
-        x.strip() for x in force_str(env(key, default=default)).split(",") if x.strip()
-    ]
-
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Reads the DEBUG environment variable and casts it to a boolean (True/False)
+# Defaults to False if not set, which is a secure default for production.
+DEBUG = env("DEBUG")
 
-ALLOWED_HOSTS = get_list_env("ALLOWED_HOSTS", default="localhost,127.0.0.1")
+# FIX: Reads ALLOWED_HOSTS from a comma-separated string in your .env file
+# Example: ALLOWED_HOSTS=localhost,127.0.0.1,road-pulse-be.onrender.com
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
-CORS_ALLOWED_ORIGINS = get_list_env(
-    "CORS_ALLOWED_ORIGINS", default="http://localhost:3000,http://127.0.0.1:3000"
+
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS", default=["http://localhost:3000", "http://127.0.0.1:3000"]
 )
 
 

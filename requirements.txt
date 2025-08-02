@@ -12,3 +12,4 @@ polyline==1.4.0
 drf-nested-routers==0.94.2
 django-cors-headers==4.4.0
 gunicorn==22.0.0
+setuptools==69.5.1
